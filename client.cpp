@@ -1,11 +1,10 @@
-#include <netdb.h>
-#include <ifaddrs.h>
-#include <unordered_map>
 #include "tcpsocket.hpp"
 #include "threadpool.hpp"
+#include "http.hpp"
 
 #define DOWNLOAD_DIR    "./Download"
 #define HOSTNAME_LEN    256
+#define SERVER_PORT     9000
 
 class Client
 {
@@ -18,32 +17,33 @@ class Client
             FindNearByHost();
         }
     private:
+        //tcp：通过本机IP地址和子网掩码得到网段,通过遍历所有主机号进行广播获取到局域网内的其它共享用户
+        //udp广播实现起来更加简单一点~~
         bool FindNearByHost() {
-            struct ifaddrs *addrs = NULL;
+            std::vector<std::string> host_list;
+            Socket::GetBroadcastAddr(host_list);
 
-            getifaddrs(&addrs);
-            while(addrs) {
-                if (addrs->ifa_addr->sa_family == AF_INET) {
-                    sockaddr_in *addr = (sockaddr_in*)addrs->ifa_addr;
-                    sockaddr_in *mask = (sockaddr_in*)addrs->ifa_netmask;
-                    std::cout<<"ifaddr name:"<<addrs->ifa_name<<std::endl;
-                    std::cout<<"ip:"<<inet_ntoa(addr->sin_addr)<<std::endl;
-                    std::cout<<"netmask:"<<inet_ntoa(mask->sin_addr)<<std::endl;
-                    std::cout<<"---------------------------------------------------\n";
+            Response rsp;
+            Request req;
+            req.SetMethod("GET");
+            req.SetPath("/hostpair");
+            req.SetVersion("HTTP/1.1");
+            req.SetHeader("Content-Length", "0");
+            req.SetHeader("Connection", "close");
+            //所有主机号中全0和全1不能使用
+            for (int i = 0; i < host_list.size(); i++){
+                std::cout<<host_list[i]<<std::endl;
+                Socket::TcpSocket sock;
+                if (sock.ClientInit(SERVER_PORT, host_list[i]) == false) continue;
+                req.SetSock(sock);
+                rsp.SetSock(sock);
+                if (req.SendRequestHeader() == false) continue;
+                if (rsp.RecvResponseHeader() == false) continue;
+                if (rsp.ParseResponseHeader() == false) continue;
+                if (rsp.GetStatus() == "200") {
+                    _host_list.push_back(host_list[i]);
                 }
-                addrs = addrs->ifa_next;
             }
-            /*获取到的地址是公网地址....
-            struct hostent *hent;
-            char hostname[HOSTNAME_LEN];
-            gethostname(hostname, HOSTNAME_LEN);
-            hent = gethostbyname(hostname);
-            std::cout<<"hostname:"<<hent->h_name<<" addr list:\n";
-            for (int i = 0; hent->h_addr_list[i] != NULL; i++) {
-                std::cout<<inet_ntoa(*(struct in_addr*)(hent->h_addr_list[i]))<<std::endl;
-            }
-            */
-
             return true;
         }
         void PrintHostList();
@@ -52,12 +52,11 @@ class Client
         uint64_t GetFileLength(std::string &file);
         bool DistributeDownLoad(std::string &url, uint64_t length);
         bool FileDownLoad(std::string &url, uint64_t start, uint64_t end);
+        void SetSharedPath(std::string &path);
     private:
-        uint32_t _net_seg;
-        uint32_t _start_host;
-        uint32_t _end_host;
+        std::string _shared_path;
         ThreadPool *_tp;
-        std::unordered_map<std::string, sockaddr_in> _host_list;
+        std::vector<std::string> _host_list;
         std::unordered_map<std::string, std::string> _file_list;
 };
 
