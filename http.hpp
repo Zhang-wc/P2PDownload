@@ -36,6 +36,11 @@ class Request
         void SetVersion(const std::string &version) {
             _version = version;
         }
+        void SetRequestLine(const std::string &method, const std::string &path, const std::string &version){
+            SetMethod(method);
+            SetPath(path);
+            SetVersion(version);
+        }
         void SetHeader(const std::string &key, const std::string &val) {
             _headers[key] = val;
         }
@@ -117,7 +122,55 @@ class Response
         bool SendResponseHeader() {
             return true;
         }
+        int64_t GetContentLength() {
+            auto it = _headers.find("Content-Length");
+            if (it == _headers.end()) {
+                return -1;
+            }
+            int64_t length;
+            std::stringstream ss;
+            ss << it->second;
+            ss >> length;
+            return length;
+        }
+        bool GetContentBody(std::string &buf) {
+            char tmp[MAX_BUFFER];
+            if (_cont_len != -1) {
+                if (_recv_len >= _cont_len) return false;
+                int rlen = (_cont_len - _recv_len) > MAX_BUFFER ? MAX_BUFFER : (_cont_len - _recv_len);
+                int ret = _sock.Recv(tmp, rlen);
+                if (ret <= 0) {
+                    return false;
+                }
+                buf.assign(tmp, ret);
+            }
+            return true;
+        }
+        bool GetContentLine(std::string &buf) {
+            char tmp[MAX_BUFFER];
+            buf.clear();
+            while(1) {
+                int ret = _sock.RecvPeek(tmp, MAX_BUFFER);
+                if (ret <= 0) {
+                    return false;
+                }
+                std::string str;
+                str.assign(tmp, ret);
+                size_t pos = str.find_first_of("\n");
+                if (pos == std::string::npos) {
+                    buf += str;
+                    _sock.Recv(tmp, ret);
+                }else {
+                    buf += str.substr(0, pos);
+                    _sock.Recv(tmp, pos);
+                    break;
+                }
+            }
+            return true;
+        }
     private:
+        int64_t _cont_len;
+        int64_t _recv_len;
         std::string _version;
         std::string _statu;
         std::string _desc;
