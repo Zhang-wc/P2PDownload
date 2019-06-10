@@ -1,2 +1,3 @@
-client:client.cpp
-	g++ -std=c++0x client.cpp -o client
+.PHONY: main
+main:main.cpp
+	g++  -g -std=c++14 $^ -o $@ -lpthread
